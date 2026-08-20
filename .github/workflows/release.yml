@@ -1,8 +1,13 @@
 name: Release
 
-# Builds a distributable Windows package on tag push. Signing is applied only
-# when the Azure Artifact Signing secrets are present, so the workflow stays
-# green before a certificate has been obtained.
+# Builds a distributable Windows package on tag push.
+#
+# Signing uses Azure Artifact Signing via OpenID Connect: GitHub mints a
+# short-lived token that Azure trusts, so no client secret is stored anywhere.
+# When the AZURE_CLIENT_ID secret is absent the workflow still runs and
+# produces an unsigned build, so this stays green before signing is set up.
+#
+# Public repository, so Actions minutes are free.
 
 on:
   push:
@@ -16,6 +21,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write # Required to request the OIDC token.
 
 jobs:
   build:
@@ -58,54 +64,66 @@ jobs:
         shell: pwsh
         run: .\.venv\Scripts\python.exe -m pytest -q
 
-      - name: Check for signing credentials
+      - name: Build
+        shell: pwsh
+        run: .\packaging\build.ps1 -Version ${{ steps.version.outputs.version }} -SkipArchive
+
+      - name: Check for signing configuration
         id: signing
         shell: pwsh
         env:
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
         run: |
-          $enabled = -not [string]::IsNullOrWhiteSpace($env:AZURE_TENANT_ID)
+          $enabled = -not [string]::IsNullOrWhiteSpace($env:CLIENT_ID)
           "enabled=$($enabled.ToString().ToLower())" >> $env:GITHUB_OUTPUT
           if (-not $enabled) {
-            Write-Host "::notice::No signing secrets configured - producing an unsigned build."
+            Write-Host "::notice::No Azure credentials configured - producing an unsigned build."
           }
 
-      - name: Install signing client
+      - name: Sign in to Azure
         if: steps.signing.outputs.enabled == 'true'
-        run: dotnet tool install --global Azure.CodeSigning.Client
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Build (unsigned)
-        if: steps.signing.outputs.enabled != 'true'
-        shell: pwsh
-        run: .\packaging\build.ps1 -Version ${{ steps.version.outputs.version }}
-
-      - name: Build (signed)
+      # Only Fidget.exe is signed. The bundle's 152 DLLs are third-party --
+      # WebView2, pythonnet, CPython -- and already carry their vendors'
+      # signatures; re-signing would replace them, and each file would consume
+      # signing quota for no gain.
+      - name: Sign the executable
         if: steps.signing.outputs.enabled == 'true'
-        shell: pwsh
-        env:
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          TRUSTED_SIGNING_ENDPOINT: ${{ secrets.TRUSTED_SIGNING_ENDPOINT }}
-          TRUSTED_SIGNING_ACCOUNT: ${{ secrets.TRUSTED_SIGNING_ACCOUNT }}
-          TRUSTED_SIGNING_PROFILE: ${{ secrets.TRUSTED_SIGNING_PROFILE }}
-        run: |
-          $dlib = Get-ChildItem "$env:USERPROFILE\.dotnet\tools\.store\azure.codesigning.client" `
-            -Recurse -Filter "Azure.CodeSigning.Dlib.dll" -ErrorAction SilentlyContinue |
-            Select-Object -First 1
-          if (-not $dlib) { throw "Could not locate Azure.CodeSigning.Dlib.dll" }
-          $env:TRUSTED_SIGNING_DLIB = $dlib.FullName
-          .\packaging\build.ps1 -Version ${{ steps.version.outputs.version }} -Sign
+        uses: azure/artifact-signing-action@v2
+        with:
+          endpoint: ${{ vars.SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.SIGNING_PROFILE }}
+          files-folder: ${{ github.workspace }}\build\dist\Fidget
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
 
-      - name: Record checksum
-        id: checksum
+      - name: Verify the signature
+        if: steps.signing.outputs.enabled == 'true'
         shell: pwsh
         run: |
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          & $signtool.FullName verify /pa /v .\build\dist\Fidget\Fidget.exe
+          if ($LASTEXITCODE -ne 0) { throw "The signature did not verify." }
+
+      - name: Package
+        id: package
+        shell: pwsh
+        run: |
+          .\packaging\build.ps1 -Version ${{ steps.version.outputs.version }} -ArchiveOnly
           $zip = Get-ChildItem .\build\dist\*.zip | Select-Object -First 1
           $hash = (Get-FileHash $zip -Algorithm SHA256).Hash
-          "sha256=$hash" >> $env:GITHUB_OUTPUT
-          "archive=$($zip.FullName)" >> $env:GITHUB_OUTPUT
           "$hash  $($zip.Name)" | Set-Content "$($zip.FullName).sha256"
+          "sha256=$hash" >> $env:GITHUB_OUTPUT
+          Write-Host "SHA-256: $hash"
 
       - uses: actions/upload-artifact@v4
         with:

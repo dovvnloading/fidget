@@ -10,9 +10,18 @@
     Release version, used to name the archive. Defaults to 1.0.0.
 
 .PARAMETER Sign
-    Sign the executable with Azure Trusted Signing. Requires the Trusted
-    Signing dlib and the AZURE_* environment variables described in
-    packaging/SIGNING.md.
+    Sign the executable locally with Azure Artifact Signing. Requires the
+    signing dlib and the AZURE_* environment variables described in
+    packaging/SIGNING.md. CI signs with azure/artifact-signing-action instead,
+    which needs no local tooling.
+
+.PARAMETER SkipArchive
+    Build without producing the zip. Used by CI, which signs the executable
+    between building and packaging.
+
+.PARAMETER ArchiveOnly
+    Package an existing build without rebuilding. The other half of the CI
+    split above.
 
 .EXAMPLE
     .\packaging\build.ps1
@@ -21,37 +30,51 @@
 [CmdletBinding()]
 param(
     [string]$Version = "1.0.0",
-    [switch]$Sign
+    [switch]$Sign,
+    [switch]$SkipArchive,
+    [switch]$ArchiveOnly
 )
 
 $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
+
+# A running build holds its own bundled files open, which surfaces as an
+# opaque PermissionDenied on base_library.zip halfway through packaging.
+# Say so plainly instead.
+$running = Get-Process -Name "Fidget" -ErrorAction SilentlyContinue
+if ($running) {
+    throw "Fidget is running (PID $($running.Id -join ', ')). Close it before building; the build output is locked while it runs."
+}
 $Python = Join-Path $RepoRoot ".venv\Scripts\python.exe"
 $BuildDir = Join-Path $RepoRoot "build"
 $DistDir = Join-Path $BuildDir "dist"
 $AppDir = Join-Path $DistDir "Fidget"
 $Exe = Join-Path $AppDir "Fidget.exe"
 
-if (-not (Test-Path $Python)) {
-    throw "Fidget is not set up yet. Run .\setup.ps1 first."
-}
+if (-not $ArchiveOnly) {
+    if (-not (Test-Path $Python)) {
+        throw "Fidget is not set up yet. Run .\setup.ps1 first."
+    }
 
-Write-Host "==> Building the interface" -ForegroundColor Cyan
-Push-Location (Join-Path $RepoRoot "frontend")
-try {
-    & npm run build
-    if ($LASTEXITCODE -ne 0) { throw "The frontend build failed." }
-} finally {
-    Pop-Location
-}
+    Write-Host "==> Building the interface" -ForegroundColor Cyan
+    Push-Location (Join-Path $RepoRoot "frontend")
+    try {
+        & npm run build
+        if ($LASTEXITCODE -ne 0) { throw "The frontend build failed." }
+    } finally {
+        Pop-Location
+    }
 
-Write-Host "==> Freezing the application" -ForegroundColor Cyan
-& $Python -m PyInstaller (Join-Path $PSScriptRoot "fidget.spec") `
-    --noconfirm `
-    --distpath $DistDir `
-    --workpath (Join-Path $BuildDir "work")
-if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed." }
-if (-not (Test-Path $Exe)) { throw "The build did not produce Fidget.exe." }
+    Write-Host "==> Freezing the application" -ForegroundColor Cyan
+    & $Python -m PyInstaller (Join-Path $PSScriptRoot "fidget.spec") `
+        --noconfirm `
+        --distpath $DistDir `
+        --workpath (Join-Path $BuildDir "work")
+    if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed." }
+    if (-not (Test-Path $Exe)) { throw "The build did not produce Fidget.exe." }
+} elseif (-not (Test-Path $Exe)) {
+    throw "Nothing to package: $Exe does not exist."
+}
 
 if ($Sign) {
     Write-Host "==> Signing" -ForegroundColor Cyan
@@ -84,8 +107,15 @@ if ($Sign) {
     & $signtool.FullName verify /pa /v $Exe
     if ($LASTEXITCODE -ne 0) { throw "The signature did not verify." }
     Write-Host "    signed and verified" -ForegroundColor Green
-} else {
+} elseif (-not $ArchiveOnly) {
     Write-Host "==> Skipping signing (pass -Sign to enable)" -ForegroundColor DarkYellow
+}
+
+if ($SkipArchive) {
+    Write-Host ""
+    Write-Host "Build complete (not packaged)" -ForegroundColor Green
+    Write-Host "  app : $AppDir"
+    return
 }
 
 Write-Host "==> Packaging" -ForegroundColor Cyan

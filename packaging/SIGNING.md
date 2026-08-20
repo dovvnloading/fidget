@@ -93,20 +93,73 @@ The script signs with SHA-256, timestamps against
 packaging. Timestamping matters: it keeps the signature valid after the
 certificate expires.
 
-## Signing in CI
+## Signing in CI (recommended)
 
-`.github/workflows/release.yml` builds and signs on tag push. Add these
-repository secrets and the signing step activates automatically; without them
-the workflow still builds, just unsigned.
+`.github/workflows/release.yml` builds and signs on tag push, using
+`azure/artifact-signing-action` with **OpenID Connect**. GitHub mints a
+short-lived token that Azure trusts directly, so there is no client secret to
+store or rotate. Nothing needs installing locally, and Actions minutes are
+free on public repositories.
+
+### One-time Azure setup
+
+1. **Register an app** in Microsoft Entra ID (*App registrations → New
+   registration*). Note its **Application (client) ID** and your **Directory
+   (tenant) ID**.
+
+2. **Add a federated credential.** On the app → *Certificates & secrets →
+   Federated credentials → Add credential*, choose **GitHub Actions deploying
+   Azure resources**, then:
+
+   | Field | Value |
+   |---|---|
+   | Organization | `dovvnloading` |
+   | Repository | `fidget` |
+   | Entity type | **Tag** |
+   | Tag | `*` |
+
+   Add a second credential with entity type **Branch** and branch `main` if you
+   want `workflow_dispatch` runs to sign too.
+
+3. **Grant signing rights.** On your Artifact Signing account → *Access control
+   (IAM) → Add role assignment*, give the app the **Artifact Signing
+   Certificate Profile Signer** role.
+
+### Repository configuration
+
+Under *Settings → Secrets and variables → Actions*:
+
+**Secrets** — identifiers, kept out of logs:
 
 | Secret | Value |
 |---|---|
-| `AZURE_TENANT_ID` | Entra tenant ID |
-| `AZURE_CLIENT_ID` | Service principal app ID |
-| `AZURE_CLIENT_SECRET` | Service principal secret |
-| `TRUSTED_SIGNING_ENDPOINT` | Region endpoint URI |
-| `TRUSTED_SIGNING_ACCOUNT` | Artifact Signing account name |
-| `TRUSTED_SIGNING_PROFILE` | Certificate profile name |
+| `AZURE_CLIENT_ID` | Application (client) ID of the app registration |
+| `AZURE_TENANT_ID` | Directory (tenant) ID |
+| `AZURE_SUBSCRIPTION_ID` | Subscription holding the signing account |
+
+**Variables** — non-sensitive, visible in logs for easier debugging:
+
+| Variable | Example |
+|---|---|
+| `SIGNING_ENDPOINT` | `https://eus.codesigning.azure.net/` |
+| `SIGNING_ACCOUNT` | Your Artifact Signing account name |
+| `SIGNING_PROFILE` | Your certificate profile name |
+
+The workflow keys off `AZURE_CLIENT_ID`: present, it signs; absent, it builds
+unsigned and says so. Release with:
+
+```powershell
+git tag v1.0.1
+git push origin v1.0.1
+```
+
+### What gets signed
+
+Only `Fidget.exe`. The bundle also contains ~150 DLLs, but those are
+third-party — WebView2, pythonnet, CPython — and already carry their vendors'
+signatures. Re-signing would replace those signatures and consume signing
+quota per file for no benefit. SmartScreen evaluates the executable the user
+launches, which is the one that gets signed.
 
 ## Verifying a signed build
 
