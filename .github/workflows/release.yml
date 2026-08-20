@@ -26,6 +26,11 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
+    # Binds the OIDC token's subject to `...:environment:release`, which stays
+    # constant across tags. A federated credential scoped to a tag would have
+    # to name one exact tag -- subjects are matched literally, so a wildcard
+    # like refs/tags/* never matches a real tag at token exchange.
+    environment: release
 
     steps:
       - uses: actions/checkout@v4
