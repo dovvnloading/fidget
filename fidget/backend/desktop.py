@@ -12,9 +12,9 @@ from typing import Any
 
 import httpx
 
-from .config import AppConfig
+from .config import AppConfig, is_frozen, resource_root
 
-ICON_PATH = Path(__file__).resolve().parents[1] / "assets" / "fidget.ico"
+ICON_PATH = resource_root() / "fidget" / "assets" / "fidget.ico"
 APP_USER_MODEL_ID = "Fidget.LocalMusicStudio"
 
 
@@ -127,17 +127,18 @@ def run_desktop() -> None:
         getattr(subprocess, "CREATE_NO_WINDOW", 0)
         | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     )
+    # A frozen build has no importable module path and its sys.executable is
+    # the app itself, so `-m fidget.backend.server` would silently start a
+    # second GUI. The exe re-launches itself in controller mode instead, which
+    # keeps the two-process design intact either way.
+    if is_frozen():
+        command = [sys.executable, "--serve", "--host", host, "--port", str(port)]
+    else:
+        command = [sys.executable, "-m", "fidget.backend.server", "--host", host, "--port", str(port)]
+
     with controller_log.open("ab", buffering=0) as log:
         process = subprocess.Popen(
-            [
-                sys.executable,
-                "-m",
-                "fidget.backend.server",
-                "--host",
-                host,
-                "--port",
-                str(port),
-            ],
+            command,
             cwd=config.project_root,
             env=os.environ.copy(),
             stdout=log,

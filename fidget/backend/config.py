@@ -3,13 +3,41 @@
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 
+def is_frozen() -> bool:
+    """True when running from a PyInstaller build rather than a source tree."""
+    return bool(getattr(sys, "frozen", False))
+
+
+def resource_root() -> Path:
+    """Directory holding files shipped *with* the app.
+
+    Frozen builds unpack their bundled data under ``sys._MEIPASS``; from source
+    the same files sit at the repository root. Everything read-only and
+    shipped -- the built frontend, the window icon, the worker script -- is
+    resolved from here so both layouts work unchanged.
+    """
+    if is_frozen():
+        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent)).resolve()
+    return Path(__file__).resolve().parents[2]
+
+
 def _default_data_root(project_root: Path) -> Path:
+    """Where generated audio, models and job state live.
+
+    Never inside the install directory: a frozen app may sit in Program Files,
+    and its bundle directory is replaced wholesale on upgrade.
+    """
     data_drive = Path("D:/")
-    return data_drive / "AI" / "fidget" if data_drive.exists() else project_root / ".fidget-data"
+    if data_drive.exists():
+        return data_drive / "AI" / "fidget"
+    if is_frozen():
+        return Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Fidget"
+    return project_root / ".fidget-data"
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,7 +111,7 @@ class AppConfig:
 
     @classmethod
     def from_environment(cls, project_root: Path | None = None) -> "AppConfig":
-        root = (project_root or Path(__file__).resolve().parents[2]).resolve()
+        root = (project_root or resource_root()).resolve()
         data_root = Path(os.getenv("FIDGET_DATA_ROOT", _default_data_root(root))).resolve()
         return cls(
             project_root=root,

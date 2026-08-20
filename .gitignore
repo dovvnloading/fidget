@@ -10,6 +10,11 @@ node_modules/
 frontend/node_modules/
 frontend/dist/
 
+# PyInstaller build output
+build/
+dist/
+*.manifest
+
 # Generated audio, job state and logs
 .fidget-data/
 *.log

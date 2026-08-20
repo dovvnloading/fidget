@@ -1,0 +1,122 @@
+name: Release
+
+# Builds a distributable Windows package on tag push. Signing is applied only
+# when the Azure Artifact Signing secrets are present, so the workflow stays
+# green before a certificate has been obtained.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (e.g. 1.0.0)"
+        required: true
+        default: "1.0.0"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        shell: pwsh
+        run: |
+          $v = if ($env:GITHUB_REF -like 'refs/tags/v*') {
+            $env:GITHUB_REF -replace '^refs/tags/v', ''
+          } else {
+            '${{ inputs.version }}'
+          }
+          "version=$v" >> $env:GITHUB_OUTPUT
+          Write-Host "Building version $v"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m venv .venv
+          .\.venv\Scripts\python.exe -m pip install --upgrade pip
+          .\.venv\Scripts\python.exe -m pip install -r requirements.txt pyinstaller
+          npm ci --prefix frontend
+
+      - name: Run tests
+        shell: pwsh
+        run: .\.venv\Scripts\python.exe -m pytest -q
+
+      - name: Check for signing credentials
+        id: signing
+        shell: pwsh
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+        run: |
+          $enabled = -not [string]::IsNullOrWhiteSpace($env:AZURE_TENANT_ID)
+          "enabled=$($enabled.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+          if (-not $enabled) {
+            Write-Host "::notice::No signing secrets configured - producing an unsigned build."
+          }
+
+      - name: Install signing client
+        if: steps.signing.outputs.enabled == 'true'
+        run: dotnet tool install --global Azure.CodeSigning.Client
+
+      - name: Build (unsigned)
+        if: steps.signing.outputs.enabled != 'true'
+        shell: pwsh
+        run: .\packaging\build.ps1 -Version ${{ steps.version.outputs.version }}
+
+      - name: Build (signed)
+        if: steps.signing.outputs.enabled == 'true'
+        shell: pwsh
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          TRUSTED_SIGNING_ENDPOINT: ${{ secrets.TRUSTED_SIGNING_ENDPOINT }}
+          TRUSTED_SIGNING_ACCOUNT: ${{ secrets.TRUSTED_SIGNING_ACCOUNT }}
+          TRUSTED_SIGNING_PROFILE: ${{ secrets.TRUSTED_SIGNING_PROFILE }}
+        run: |
+          $dlib = Get-ChildItem "$env:USERPROFILE\.dotnet\tools\.store\azure.codesigning.client" `
+            -Recurse -Filter "Azure.CodeSigning.Dlib.dll" -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+          if (-not $dlib) { throw "Could not locate Azure.CodeSigning.Dlib.dll" }
+          $env:TRUSTED_SIGNING_DLIB = $dlib.FullName
+          .\packaging\build.ps1 -Version ${{ steps.version.outputs.version }} -Sign
+
+      - name: Record checksum
+        id: checksum
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem .\build\dist\*.zip | Select-Object -First 1
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash
+          "sha256=$hash" >> $env:GITHUB_OUTPUT
+          "archive=$($zip.FullName)" >> $env:GITHUB_OUTPUT
+          "$hash  $($zip.Name)" | Set-Content "$($zip.FullName).sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Fidget-${{ steps.version.outputs.version }}-windows-x64
+          path: build/dist/*.zip
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            build/dist/*.zip
+            build/dist/*.sha256
+          generate_release_notes: true

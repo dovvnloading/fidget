@@ -57,6 +57,20 @@ Fidget renders inside an embedded Edge WebView2 window, which ships with Windows
 
 ## Installation
 
+### Download the app
+
+Grab the latest build from the [releases page](https://github.com/dovvnloading/fidget/releases), unzip it anywhere, and run `Fidget.exe`.
+
+Builds are not yet code-signed, so Windows SmartScreen will warn you the first time — click **More info**, then **Run anyway**. Every release lists a SHA-256 checksum you can verify against:
+
+```powershell
+Get-FileHash .\Fidget-1.0.0-windows-x64.zip -Algorithm SHA256
+```
+
+The app still needs the ACE-Step model, which is not bundled — it is several gigabytes and belongs in one place on your machine rather than inside every release. Run `.\setup.ps1 -SkipModelDownload:$false` from a source checkout once to fetch it, or follow [Building from source](#building-from-source) below.
+
+### Building from source
+
 From PowerShell, in the project folder:
 
 ```powershell
