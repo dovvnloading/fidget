@@ -1,5 +1,11 @@
 # Fidget
 
+[![License: MIT](https://img.shields.io/github/license/dovvnloading/fidget?style=flat-square)](LICENSE)
+[![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6?style=flat-square&logo=windows&logoColor=white)](#requirements)
+[![Runs 100% locally](https://img.shields.io/badge/runs-100%25%20locally-brightgreen?style=flat-square)](#why-fidget)
+[![GPU: NVIDIA CUDA](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?style=flat-square&logo=nvidia&logoColor=white)](#requirements)
+[![Powered by ACE-Step 1.5](https://img.shields.io/badge/powered%20by-ACE--Step%201.5-e8734f?style=flat-square)](https://github.com/ace-step/ACE-Step-1.5)
+
 **A music studio that runs entirely on your own machine.**
 
 Describe a piece of music in a sentence or two, and Fidget writes and renders it — a complete track with structure, instrumentation, and optional vocals. Nothing is uploaded, nothing is queued on someone else's server, and there is no subscription. The model runs on your GPU, and the audio it produces is yours.
