@@ -5,6 +5,7 @@
 [![Runs 100% locally](https://img.shields.io/badge/runs-100%25%20locally-brightgreen?style=flat-square)](#why-fidget)
 [![GPU: NVIDIA CUDA](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?style=flat-square&logo=nvidia&logoColor=white)](#requirements)
 [![Powered by ACE-Step 1.5](https://img.shields.io/badge/powered%20by-ACE--Step%201.5-e8734f?style=flat-square)](https://github.com/ace-step/ACE-Step-1.5)
+[![Code signed](https://img.shields.io/badge/releases-code%20signed-2ea44f?style=flat-square)](packaging/SIGNING.md)
 
 **A music studio that runs entirely on your own machine.**
 
@@ -61,11 +62,13 @@ Fidget renders inside an embedded Edge WebView2 window, which ships with Windows
 
 Grab the latest build from the [releases page](https://github.com/dovvnloading/fidget/releases), unzip it anywhere, and run `Fidget.exe`.
 
-Builds are not yet code-signed, so Windows SmartScreen will warn you the first time — click **More info**, then **Run anyway**. Every release lists a SHA-256 checksum you can verify against:
+Releases are code-signed, so Windows shows a named publisher rather than an unknown-publisher warning. You can confirm the signature yourself:
 
 ```powershell
-Get-FileHash .\Fidget-1.0.0-windows-x64.zip -Algorithm SHA256
+Get-AuthenticodeSignature .\Fidget\Fidget.exe | Format-List Status, SignerCertificate
 ```
+
+Every release also lists a SHA-256 checksum for the archive.
 
 The app still needs the ACE-Step model, which is not bundled — it is several gigabytes and belongs in one place on your machine rather than inside every release. Run `.\setup.ps1 -SkipModelDownload:$false` from a source checkout once to fetch it, or follow [Building from source](#building-from-source) below.
 
