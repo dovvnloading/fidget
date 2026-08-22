@@ -2,111 +2,94 @@
 
 [![License: MIT](https://img.shields.io/github/license/dovvnloading/fidget?style=flat-square)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6?style=flat-square&logo=windows&logoColor=white)](#requirements)
-[![Runs 100% locally](https://img.shields.io/badge/runs-100%25%20locally-brightgreen?style=flat-square)](#why-fidget)
+[![Runs 100% locally](https://img.shields.io/badge/runs-100%25%20locally-brightgreen?style=flat-square)](#architecture)
 [![GPU: NVIDIA CUDA](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?style=flat-square&logo=nvidia&logoColor=white)](#requirements)
 [![Powered by ACE-Step 1.5](https://img.shields.io/badge/powered%20by-ACE--Step%201.5-e8734f?style=flat-square)](https://github.com/ace-step/ACE-Step-1.5)
 [![Code signed](https://img.shields.io/badge/releases-code%20signed-2ea44f?style=flat-square)](packaging/SIGNING.md)
 
-**A music studio that runs entirely on your own machine.**
-
-Describe a piece of music in a sentence or two, and Fidget writes and renders it — a complete track with structure, instrumentation, and optional vocals. Nothing is uploaded, nothing is queued on someone else's server, and there is no subscription. The model runs on your GPU, and the audio it produces is yours.
+Fidget is a Windows desktop application for local text-to-music generation. It provides a native interface over the [ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5) model, running inference on the local GPU and producing complete tracks — structure, instrumentation, and optional vocals — from a text description and, optionally, lyrics. No audio, prompts, or telemetry leave the machine.
 
 ![The Fidget interface](docs/screenshot.png)
 
----
+## Contents
 
-## Why Fidget
+- [Overview](#overview)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Architecture](#architecture)
+- [HTTP API](#http-api)
+- [Configuration](#configuration)
+- [Development](#development)
+- [Acknowledgements](#acknowledgements)
+- [Licence](#licence)
 
-Most AI music tools are websites. You type into a box, wait in a queue, and hope the result is close enough — and every track you make lives on infrastructure you don't control.
+## Overview
 
-Fidget is a desktop application built around the opposite idea. It is a small, fast native window that puts a real instrument in front of you: a prompt library to start from, controls that map to how musicians actually describe music, a proper waveform player, and a library of everything you've made. It is designed to be used for an afternoon, not admired for five minutes.
+Fidget consists of a native WebView2 window, a FastAPI controller that owns the job queue, and a per-generation worker process that runs the ACE-Step runtime in isolation. The interface is a React application served by the controller.
 
----
+Principal capabilities:
 
-## What you can do
-
-**Start from a blank page, or don't.** Fidget ships with a library of complete, ready-to-use prompts across eight genre families — each one carrying its own tempo, key, and length. Click one and the composer fills in. If you'd rather build your own, there is a second library of individual descriptors — genres, instruments, vocal styles, moods, rhythms, production textures — that you can toggle on and off. Everything you type by hand is preserved as you do.
-
-**Write tracks from ten seconds to eight minutes.** Short loops for sketching, full-length pieces when you want them.
-
-**Generate several takes at once.** Ask for up to four variations of the same idea and Fidget renders them one after another, each with its own seed, pacing the queue so your machine is never asked to do two at a time. Picking the best of four is almost always faster than trying to get one perfect.
-
-**Keep what works, discard what doesn't.** Every finished track lands in your library. New ones are quietly highlighted until you've heard them. A thumbs-up keeps a track; a thumbs-down removes it and its audio file from disk.
-
-**Listen properly.** The player draws a real waveform from the rendered audio — not a decorative animation — with click-to-seek, volume, and a details panel showing exactly how the track was made: render time, peak memory, measured length, loudness, seed, and a SHA-256 checksum of the file.
-
-**Reproduce anything.** Every take records the seed that produced it, so a result you liked can always be made again.
-
----
+- **Prompt composition.** A curated library of complete prompts across eight genre families, each carrying tempo, key, and duration, alongside a library of individual descriptors (genre, instrumentation, vocal character, mood, rhythm, production) that can be toggled into a caption without disturbing hand-written text.
+- **Track length** from 10 to 480 seconds on the default profile.
+- **Batch generation.** Up to four takes per request, each with a distinct seed, executed sequentially with resource settling between runs.
+- **Library management.** Finished takes are persisted with their full parameters. Unheard tracks are visually distinguished; tracks can be favourited or deleted (including their audio on disk).
+- **Playback.** A waveform rendered from the decoded audio, seek, volume, and a per-track detail panel reporting render time, peak memory, measured duration, RMS, seed, and SHA-256.
+- **Reproducibility.** Every take records the seed that produced it.
 
 ## Requirements
 
-Fidget is a Windows application and needs a reasonably capable NVIDIA GPU.
-
-| | |
+| Component | Requirement |
 |---|---|
-| **Operating system** | Windows 10 or 11 |
-| **GPU** | NVIDIA with CUDA support, 8 GB VRAM or more |
-| **Memory** | 16 GB system RAM |
-| **Software** | Python 3.12, Node.js, Git |
+| Operating system | Windows 10 or Windows 11 (x64) |
+| GPU | NVIDIA, CUDA-capable, 8 GB VRAM minimum |
+| System memory | 16 GB |
+| Runtime | Microsoft Edge WebView2 (present on Windows 11 and current Windows 10) |
+| Build tooling (source installs only) | Python 3.12, Node.js 20, Git |
 
-The reference machine for this build is an RTX 3060 Ti (8 GB), an i5-10400F, and 16 GB of RAM. More VRAM means longer tracks and faster rendering; ACE-Step scales its own limits to the card it finds.
-
-Fidget renders inside an embedded Edge WebView2 window, which ships with Windows 11 and current Windows 10 installs. It never opens a browser.
-
----
+The reference configuration is an RTX 3060 Ti (8 GB), Intel i5-10400F, and 16 GB RAM. ACE-Step selects its own duration and batch limits according to detected VRAM; larger cards permit longer tracks and faster rendering.
 
 ## Installation
 
-### Download the app
+### Binary release
 
-Grab the latest build from the [releases page](https://github.com/dovvnloading/fidget/releases), unzip it anywhere, and run `Fidget.exe`.
+1. Download the latest archive from the [releases page](https://github.com/dovvnloading/fidget/releases).
+2. Extract it to any location and run `Fidget.exe`.
 
-Releases are code-signed, so Windows shows a named publisher rather than an unknown-publisher warning. You can confirm the signature yourself:
+Release executables are code-signed. The signature can be verified with:
 
 ```powershell
 Get-AuthenticodeSignature .\Fidget\Fidget.exe | Format-List Status, SignerCertificate
 ```
 
-Every release also lists a SHA-256 checksum for the archive.
+Each release also publishes a SHA-256 checksum for the archive.
 
-The app still needs the ACE-Step model, which is not bundled — it is several gigabytes and belongs in one place on your machine rather than inside every release. Run `.\setup.ps1 -SkipModelDownload:$false` from a source checkout once to fetch it, or follow [Building from source](#building-from-source) below.
+The ACE-Step model is **not** bundled with releases. It is several gigabytes and is installed once, to a shared location, by the setup script described below. Run `setup.ps1` from a source checkout to provision it; the binary release will then locate it automatically.
 
-### Building from source
-
-From PowerShell, in the project folder:
+### From source
 
 ```powershell
 .\setup.ps1
-```
-
-This does everything in one pass: creates the Python environment, builds the interface, clones ACE-Step into an isolated runtime of its own, and downloads the model weights. It takes a while on first run — the model download is several gigabytes — and it verifies that CUDA is genuinely working before it finishes.
-
-Then start the app:
-
-```powershell
 .\run.ps1
 ```
 
-If you'd rather fetch the model weights separately, `.\setup.ps1 -SkipModelDownload` sets up everything else.
+`setup.ps1` creates the Python environment, builds the frontend, clones ACE-Step into an isolated runtime, downloads the Turbo and 0.6B language-model checkpoints, and verifies CUDA availability. Pass `-SkipModelDownload` to provision everything except the model weights.
 
----
-
-## Using Fidget
+## Usage
 
 ### Describing a track
 
-The description is the single most important thing you write. Fidget's own prompt library is built to the shape ACE-Step responds to best — roughly two sentences that name four things:
+The caption is the primary control. The bundled prompt library follows the structure the model is trained against: approximately two sentences naming **genre**, **instrumentation**, **mood**, and **production style**.
 
-> *A nostalgic boom-bap hip-hop track with a chopped soul sample, upright bass, and a crisp swung snare. Features vinyl crackle, muted rhodes chords, and warm, lo-fi production.*
+> A nostalgic boom-bap hip-hop track with a chopped soul sample, upright bass, and a crisp swung snare. Features vinyl crackle, muted rhodes chords, and warm, lo-fi production.
 
-**Genre**, **instruments**, **mood**, and **production style**. Being specific beats being poetic — "rock song" leaves everything to chance, while "crunchy rhythm guitar, punchy snare, gravelly male vocals" describes something the model can actually build.
+Specific instrumentation and production detail produce more consistent results than genre labels alone.
 
-One thing worth knowing: **don't put tempo or key in the description.** They have their own controls, and saying "slow ballad" while the tempo dial reads 160 BPM gives the model contradictory instructions. Set them in the fields provided and let the description handle character.
+Tempo and key should be set using their dedicated controls rather than described in the caption. ACE-Step treats caption text and metadata parameters as separate inputs, and conflicting values between them degrade output.
 
 ### Lyrics
 
-Switch to **With vocals** and a lyrics field appears. Square-bracket tags mark the song's structure and shape its energy over time:
+Selecting **With vocals** exposes a lyrics field. Bracketed section tags define song structure and guide dynamics:
 
 ```
 [Intro]
@@ -124,61 +107,105 @@ Into the light
 [Outro]
 ```
 
-Lines of roughly six to ten syllables sit most naturally. Capital letters raise intensity, and text in (parentheses) becomes backing vocals. Even if you don't have words yet, laying out the tags alone gives the model a useful map of where the song should build and where it should breathe.
+Lines of six to ten syllables align most reliably with the generated melody. Upper-case text increases vocal intensity; parenthesised text is rendered as backing vocals. Section tags are useful on their own, without lyric content, as a structural guide.
 
 ### Takes
 
-The **Takes** control asks for up to four variations in one go. They render sequentially, and you can cancel any of them individually while the rest continue.
+The **Takes** control requests one to four variations of the current prompt. Takes are queued and rendered sequentially; any queued take can be cancelled independently.
 
----
+## Architecture
 
-## Under the hood
+Fidget separates the interface, the controller, and generation into three processes.
 
-Fidget keeps three things apart on purpose, and the reason is stability.
+| Process | Role |
+|---|---|
+| **Window** | A pywebview WebView2 host. Contains no model code. |
+| **Controller** | A FastAPI service that serves the interface, persists job state, and owns a single-worker queue. |
+| **Worker** | A short-lived process, one per generation, that loads the ACE-Step runtime, renders a track, and exits. |
 
-The **interface** runs in a native window. A small **controller** serves it and owns the job queue. Each generation then runs in a **separate, disposable worker process** that is launched, watched, and torn down for every single track.
+Each worker runs inside a Windows Job Object at below-normal priority, emits a heartbeat, and is terminated by the controller if it stops responding, exceeds the configured timeout, or drives available system or GPU memory below the abort floors. Launch is refused outright if free memory is already below the launch floors. GPU memory is released on worker exit, before the next job starts.
 
-That isolation is what keeps the app usable. Generation is memory-hungry and occasionally fails; when it does, only the worker dies. The window stays responsive, your library stays intact, and the failure is reported rather than taking the application down with it. The supervisor watches memory and a heartbeat throughout, and stops a run that starts to endanger the machine. GPU memory is fully released after every track.
+Output is written atomically. Before a track is exposed to the interface, the controller independently parses the WAV, rejects silent or near-silent audio, and confirms that its SHA-256 digest matches the one reported by the worker. A verification record for every job is written to `state/verification/<job-id>.json`.
 
-Nothing is trusted blindly, either. Before a finished track appears in your library, its audio is parsed, checked that it isn't silent, and verified against a SHA-256 checksum computed by both the worker and the controller.
+Source layout:
 
----
+```
+fidget/backend/     Controller, job queue, worker supervision, audio validation
+fidget/worker/      Isolated generation process (executed by the ACE-Step runtime)
+frontend/src/       React interface
+packaging/          PyInstaller spec, build script, signing documentation
+```
+
+## HTTP API
+
+The controller binds to a random loopback port on each launch. The interface is its only intended client, but the surface is small and stable.
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/health` | Liveness and uptime |
+| `GET` | `/api/model` | Runtime state, hardware, memory headroom, and active limits |
+| `POST` | `/api/generate` | Submit a generation request; returns one job per requested take |
+| `GET` | `/api/jobs` | All jobs, newest first |
+| `GET` | `/api/jobs/{id}` | A single job |
+| `POST` | `/api/jobs/{id}/cancel` | Cancel a queued or running job |
+| `POST` | `/api/jobs/{id}/retry` | Re-submit a job's parameters |
+| `POST` | `/api/jobs/{id}/favorite` | Set or clear the favourite flag |
+| `DELETE` | `/api/jobs/{id}` | Remove a finished job and its artefacts |
+| `GET` | `/api/verification/latest` | The most recent successful verification record |
 
 ## Configuration
 
-Fidget works without configuration. These environment variables are there if you need them:
+All settings have working defaults. They can be overridden through environment variables.
 
-| Variable | Default | What it does |
+| Variable | Default | Description |
 |---|---|---|
-| `FIDGET_MAX_DURATION` | `480` | Longest track, in seconds |
-| `FIDGET_MAX_VARIATIONS` | `4` | Takes allowed per request |
-| `FIDGET_ENABLE_LM` | `true` | Set `false` to skip the planning model and use less memory |
-| `FIDGET_MIN_RAM_GB` | `7.0` | System RAM that must be free before a run starts |
-| `FIDGET_MIN_FREE_VRAM_MB` | `7000` | GPU memory that must be free before a run starts |
+| `FIDGET_MAX_DURATION` | `480` | Maximum track length in seconds |
+| `FIDGET_MAX_VARIATIONS` | `4` | Maximum takes per request |
+| `FIDGET_ENABLE_LM` | `true` | Use the 0.6B language model for planning. Set to `false` to reduce memory use. |
+| `FIDGET_MIN_RAM_GB` | `7.0` | Free system memory required to launch a worker |
+| `FIDGET_MIN_FREE_VRAM_MB` | `7000` | Free GPU memory required to launch a worker |
+| `FIDGET_ABORT_RAM_GB` | `2.5` | Free system memory below which a running worker is terminated |
+| `FIDGET_ABORT_FREE_VRAM_MB` | `420` | Free GPU memory below which a running worker is terminated |
+| `FIDGET_WORKER_TIMEOUT` | `1200` | Hard timeout per generation, in seconds |
+| `FIDGET_HEARTBEAT_TIMEOUT` | `45` | Seconds without a heartbeat before a worker is considered hung |
 | `FIDGET_JOB_COOLDOWN_SECONDS` | `6` | Pause between consecutive takes |
-| `FIDGET_DATA_ROOT` | `D:\AI\fidget` | Where models, audio, and job state live |
+| `FIDGET_SETTLE_TIMEOUT_SECONDS` | `120` | Maximum wait for memory to be reclaimed before a take is abandoned |
+| `FIDGET_CUDA_MEMORY_FRACTION` | `0.86` | Fraction of GPU memory the worker may allocate |
+| `FIDGET_DATA_ROOT` | `D:\AI\fidget` | Location of the model runtime, generated audio, and job state |
 
-If Fidget refuses to start a run because memory is low, closing a browser is usually enough. If your machine handles it comfortably below the default floor, lowering `FIDGET_MIN_RAM_GB` is reasonable.
+## Development
 
----
+```powershell
+# Run the test suite
+.\.venv\Scripts\python.exe -m pytest -q
 
-## Built on ACE-Step
+# Build the interface
+npm --prefix .\frontend run build
 
-Fidget is an interface. **All of the music is generated by [ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5)**, an open-source music generation model, and every credit for the quality of the audio belongs to that project and its authors.
+# Interface with hot reload, proxied to a running controller
+npm --prefix .\frontend run dev
 
-ACE-Step is a genuinely remarkable piece of open research — a foundation model that generates complete songs with coherent structure, vocals in more than fifty languages, and control over tempo, key, and arrangement, all fast enough to run on consumer hardware. Fidget uses the **Turbo** checkpoint together with the **0.6B language model**, a combination chosen to fit comfortably in 8 GB of VRAM.
+# Produce a distributable build
+.\packaging\build.ps1 -Version 1.0.0
+```
 
-**Project links**
+Releases are produced by the GitHub Actions workflow in `.github/workflows/release.yml` on tag push. The workflow builds, tests, signs the executable via Azure Artifact Signing over OpenID Connect, and publishes the archive with its checksum. See [`packaging/SIGNING.md`](packaging/SIGNING.md) for the signing configuration.
 
-- Repository — <https://github.com/ace-step/ACE-Step-1.5>
-- Model weights — <https://huggingface.co/ACE-Step/Ace-Step1.5>
-- Project page — <https://ace-step.github.io/ace-step-v1.5.github.io/>
+## Acknowledgements
 
-**Getting the model.** You don't need to download anything by hand; `setup.ps1` clones ACE-Step and fetches exactly the two checkpoints Fidget uses (`acestep-v15-turbo` and `acestep-5Hz-lm-0.6B`) into an isolated environment. Should you want them directly, they are on Hugging Face at the link above.
+All audio is generated by **ACE-Step 1.5**, an open-source music generation model developed by ACE Studio and StepFun. Fidget is an interface to that model and contributes no generative capability of its own.
 
-**Licence.** ACE-Step is released under the MIT Licence. Fidget bundles none of its code or weights — setup fetches them from the official sources at install time.
+ACE-Step produces full-length compositions with coherent structure, multilingual vocals, and explicit control over tempo, key, and time signature, at speeds suitable for consumer hardware. Fidget uses the `acestep-v15-turbo` checkpoint with the `acestep-5Hz-lm-0.6B` language model, a configuration selected to operate within 8 GB of VRAM.
 
-**Citation.** If ACE-Step is useful in your own work, the authors ask that you cite it:
+| | |
+|---|---|
+| Repository | <https://github.com/ace-step/ACE-Step-1.5> |
+| Model weights | <https://huggingface.co/ACE-Step/Ace-Step1.5> |
+| Project page | <https://ace-step.github.io/ace-step-v1.5.github.io/> |
+
+The model and its source are released under the MIT Licence. Fidget does not redistribute them; `setup.ps1` retrieves them from the official sources at install time.
+
+If ACE-Step contributes to published work, the authors request the following citation:
 
 ```bibtex
 @misc{gong2026acestep,
@@ -190,27 +217,8 @@ ACE-Step is a genuinely remarkable piece of open research — a foundation model
 }
 ```
 
----
-
-## Development
-
-```powershell
-# Test suite
-.\.venv\Scripts\python.exe -m pytest -q
-
-# Rebuild the interface
-npm --prefix .\frontend run build
-
-# Interface with hot reload, against a running controller
-npm --prefix .\frontend run dev
-```
-
-The layout is straightforward: `fidget/backend` holds the controller and the worker supervisor, `fidget/worker` is the isolated generation process, and `frontend/src` is the React interface.
-
----
-
 ## Licence
 
 Fidget is released under the MIT Licence. See [LICENSE](LICENSE).
 
-Music you generate with Fidget is yours. Bear in mind that ACE-Step's own model licence governs the weights themselves — worth a read if you intend to publish commercially.
+Generated audio is the property of the user. Use of the model weights is governed separately by the ACE-Step licence.
