@@ -47,8 +47,6 @@ Principal capabilities:
 | Runtime | Microsoft Edge WebView2 (present on Windows 11 and current Windows 10) |
 | Build tooling (source installs only) | Python 3.12, Node.js 20, Git |
 
-The reference configuration is an RTX 3060 Ti (8 GB), Intel i5-10400F, and 16 GB RAM. ACE-Step selects its own duration and batch limits according to detected VRAM; larger cards permit longer tracks and faster rendering.
-
 ## Installation
 
 ### Binary release
